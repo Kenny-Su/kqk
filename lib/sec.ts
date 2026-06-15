@@ -1,0 +1,137 @@
+import "server-only";
+
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import type { RecentSecFiling } from "@/lib/types";
+
+type CompanyTickerEntry = {
+  cik_str: number;
+  ticker: string;
+  title: string;
+};
+
+type SubmissionsResponse = {
+  cik: string;
+  name: string;
+  tickers?: string[];
+  filings: {
+    recent: {
+      accessionNumber: string[];
+      filingDate: string[];
+      reportDate: string[];
+      form: string[];
+      primaryDocument: string[];
+      primaryDocDescription: string[];
+    };
+  };
+};
+
+const SEC_BASE = "https://www.sec.gov";
+const SEC_DATA_BASE = "https://data.sec.gov";
+const USER_AGENT =
+  process.env.SEC_USER_AGENT ||
+  "KQK local SEC filing explorer contact: local-development@example.com";
+
+function cachePath(...parts: string[]) {
+  return join(process.cwd(), "data", "sec-cache", ...parts);
+}
+
+async function secFetch(url: string) {
+  const response = await fetch(url, {
+    headers: {
+      "User-Agent": USER_AGENT,
+      Accept: "application/json, text/html;q=0.9, text/plain;q=0.8"
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`SEC request failed (${response.status}) for ${url}`);
+  }
+
+  return response;
+}
+
+export async function resolveCompany(identifier: string) {
+  const normalized = identifier.trim().toUpperCase();
+  if (!normalized) {
+    throw new Error("Enter a ticker or CIK.");
+  }
+
+  if (/^\d+$/.test(normalized)) {
+    const cik = normalized.padStart(10, "0");
+    const submissions = await fetchSubmissions(cik);
+    return {
+      ticker: submissions.tickers?.[0] ?? null,
+      name: submissions.name,
+      cik
+    };
+  }
+
+  const response = await secFetch(`${SEC_BASE}/files/company_tickers.json`);
+  const data = (await response.json()) as Record<string, CompanyTickerEntry>;
+  const entry = Object.values(data).find((candidate) => candidate.ticker === normalized);
+
+  if (!entry) {
+    throw new Error(`Could not find SEC company for ticker ${normalized}.`);
+  }
+
+  return {
+    ticker: entry.ticker,
+    name: entry.title,
+    cik: String(entry.cik_str).padStart(10, "0")
+  };
+}
+
+export async function fetchSubmissions(cik: string): Promise<SubmissionsResponse> {
+  const response = await secFetch(`${SEC_DATA_BASE}/submissions/CIK${cik}.json`);
+  return (await response.json()) as SubmissionsResponse;
+}
+
+export async function getRecentFilings(cik: string): Promise<RecentSecFiling[]> {
+  const submissions = await fetchSubmissions(cik);
+  const recent = submissions.filings.recent;
+  const wantedForms = new Set(["10-K", "10-Q", "8-K"]);
+
+  return recent.accessionNumber
+    .map((accessionNumber, index) => ({
+      accessionNumber,
+      formType: recent.form[index],
+      filingDate: recent.filingDate[index],
+      periodEndDate: recent.reportDate[index] || null,
+      primaryDocument: recent.primaryDocument[index],
+      title: recent.primaryDocDescription[index] || null
+    }))
+    .filter((filing) => wantedForms.has(filing.formType))
+    .slice(0, 20);
+}
+
+export async function downloadFiling(input: {
+  cik: string;
+  accessionNumber: string;
+  primaryDocument: string;
+  force?: boolean;
+}) {
+  const compactAccession = input.accessionNumber.replace(/-/g, "");
+  const cikNumber = String(Number(input.cik));
+  const secUrl = `${SEC_BASE}/Archives/edgar/data/${cikNumber}/${compactAccession}/${input.primaryDocument}`;
+  const localPath = cachePath(input.cik, `${input.accessionNumber}-${input.primaryDocument}`);
+
+  mkdirSync(join(process.cwd(), "data", "sec-cache", input.cik), { recursive: true });
+
+  let html: string;
+  try {
+    if (input.force) {
+      throw new Error("Force refresh requested.");
+    }
+    html = readFileSync(localPath, "utf8");
+  } catch {
+    const response = await secFetch(secUrl);
+    html = await response.text();
+    writeFileSync(localPath, html, "utf8");
+  }
+
+  return {
+    secUrl,
+    localPath
+  };
+}

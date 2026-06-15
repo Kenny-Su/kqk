@@ -49,7 +49,13 @@ function migrate(database: DatabaseSync) {
       createdAt TEXT NOT NULL,
       updatedAt TEXT NOT NULL
     );
+  `);
+  dropObsoleteTables(database);
+}
 
+function dropObsoleteTables(database: DatabaseSync) {
+  database.exec(`
+    DROP TABLE IF EXISTS bookmarks;
     DROP TABLE IF EXISTS filing_sections_fts;
     DROP TABLE IF EXISTS filing_sections;
   `);
@@ -68,7 +74,9 @@ export function findCompanyById(id: number): Company | undefined {
 }
 
 export function deleteCompanyById(id: number) {
-  getDb().prepare("DELETE FROM companies WHERE id = ?").run(id);
+  const database = getDb();
+  dropObsoleteTables(database);
+  database.prepare("DELETE FROM companies WHERE id = ?").run(id);
 }
 
 export function upsertCompany(input: {

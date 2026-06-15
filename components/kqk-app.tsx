@@ -47,6 +47,7 @@ export function KqkApp() {
     );
   }, [cachedFilings, recentFilings]);
 
+  const selectedCompany = companies.find((company) => company.id === selectedCompanyId) ?? null;
   const localHtmlUrl = filingDetail ? `/api/filings/${filingDetail.filing.id}/html` : "";
 
   useEffect(() => {
@@ -271,16 +272,22 @@ export function KqkApp() {
   return (
     <main className="shell">
       <header className="topbar">
-        <div>
+        <div className="brand">
           <p className="eyebrow">SEC Filing Viewer</p>
           <h1>KQK</h1>
         </div>
-        <p className="status">{loading ? "Working..." : status}</p>
+        <p className={loading ? "status busy" : "status"}>{loading ? "Working..." : status}</p>
       </header>
 
       <section className="grid two">
         <div className="panel">
-          <h2>1. Add Company</h2>
+          <div className="panelHeader">
+            <div>
+              <p className="eyebrow">Companies</p>
+              <h2>Add Company</h2>
+            </div>
+            <span className="countBadge">{companies.length}</span>
+          </div>
           <form className="row" onSubmit={addCompany}>
             <input
               value={identifier}
@@ -291,6 +298,12 @@ export function KqkApp() {
           </form>
 
           <div className="list">
+            {companies.length === 0 ? (
+              <div className="emptyState">
+                <strong>No companies yet</strong>
+                <span>Add a ticker or CIK to fetch its latest filing.</span>
+              </div>
+            ) : null}
             {companies.map((company) => (
               <div className="companyRow" key={company.id}>
                 <button
@@ -298,7 +311,10 @@ export function KqkApp() {
                   onClick={() => loadCompany(company.id)}
                   type="button"
                 >
-                  <strong>{company.ticker ?? company.cik}</strong>
+                  <span className="itemTopline">
+                    <strong>{company.ticker ?? company.cik}</strong>
+                    <span className="pill">CIK {company.cik}</span>
+                  </span>
                   <span>{company.name}</span>
                 </button>
                 <button
@@ -316,14 +332,22 @@ export function KqkApp() {
 
         <div className="panel">
           <div className="panelHeader">
-            <h2>2. Choose Filing</h2>
+            <div>
+              <p className="eyebrow">
+                {selectedCompany ? selectedCompany.ticker ?? selectedCompany.cik : "Filings"}
+              </p>
+              <h2>Recent Filings</h2>
+            </div>
             <button disabled={!selectedCompanyId || loading} onClick={handleFetchRecent}>
               Refresh Recent
             </button>
           </div>
           <div className="list compact">
             {filingChoices.length === 0 ? (
-              <p className="muted">Select a company, then fetch recent 10-K, 10-Q, and 8-K filings.</p>
+              <div className="emptyState">
+                <strong>No filings loaded</strong>
+                <span>Select a company, then refresh recent SEC filings.</span>
+              </div>
             ) : null}
             {filingChoices.map((choice) => (
               <button
@@ -332,11 +356,12 @@ export function KqkApp() {
                 onClick={() => openOrFetchFiling(choice)}
                 type="button"
               >
-                <strong>
-                  {choice.formType} · {choice.filingDate}
-                </strong>
+                <span className="itemTopline">
+                  <strong>{choice.formType}</strong>
+                  <span>{choice.filingDate}</span>
+                </span>
                 {filingTitle(choice) ? <span>{filingTitle(choice)}</span> : null}
-                <span>
+                <span className={choice.cached ? "cacheState cached" : "cacheState"}>
                   {choice.cached
                     ? `Cached ${formatCacheTime(choice.cached.updatedAt)}`
                     : "Not cached"}
@@ -363,7 +388,15 @@ export function KqkApp() {
           </div>
           <iframe title="Cached SEC filing HTML" src={localHtmlUrl} />
         </section>
-      ) : null}
+      ) : (
+        <section className="viewer emptyViewer">
+          <div>
+            <p className="eyebrow">Viewer</p>
+            <h2>No Filing Open</h2>
+            <p className="muted">Choose a cached filing or fetch one from SEC to display it here.</p>
+          </div>
+        </section>
+      )}
     </main>
   );
 }

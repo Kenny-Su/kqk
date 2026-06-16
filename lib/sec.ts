@@ -33,8 +33,7 @@ type SubmissionsResponse = {
 const SEC_BASE = "https://www.sec.gov";
 const SEC_DATA_BASE = "https://data.sec.gov";
 const USER_AGENT =
-  process.env.SEC_USER_AGENT ||
-  "KQK local SEC filing explorer contact: local-development@example.com";
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
 
 function cachePath(...parts: string[]) {
   return join(process.cwd(), "data", "sec-cache", ...parts);

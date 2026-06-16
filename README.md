@@ -1,12 +1,10 @@
 # KQK
 
-KQK is a local-first SEC filing viewer.
+Local SEC company dashboard.
 
-## What It Does
-
-* Add companies by ticker or CIK.
-* Fetch, cache, and view recent SEC filings.
-* Visualize SEC company facts for core financial metrics.
+- Find recent `10-K`, `10-Q`, and `8-K` filings.
+- Open filings on SEC.
+- Chart key SEC company facts.
 
 ## Run
 
@@ -17,4 +15,11 @@ npm run dev
 
 Open http://localhost:3000.
 
-Local database and cached filings are stored in `data/`.
+## Check
+
+```bash
+npm test
+npm run typecheck
+```
+
+Local data lives in `data/` and is disposable.

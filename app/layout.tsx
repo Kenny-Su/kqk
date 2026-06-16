@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "KQK",
-  description: "Local-first SEC filing explorer"
+  description: "SEC filings and financial facts dashboard"
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

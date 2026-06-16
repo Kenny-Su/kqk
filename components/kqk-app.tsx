@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -12,7 +12,6 @@ import {
 } from "recharts";
 import type {
   Company,
-  Filing,
   FinancialDataPoint,
   FinancialFactsResponse,
   FinancialMetric,
@@ -20,11 +19,6 @@ import type {
   FinancialStatement,
   RecentSecFiling
 } from "@/lib/types";
-
-type FilingDetail = {
-  filing: Filing;
-  company?: Company;
-};
 
 type FinancialTimeFrame = "1y" | "3y" | "5y" | "10y" | "all";
 
@@ -46,8 +40,6 @@ export function KqkApp() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState<number | null>(null);
   const [recentFilings, setRecentFilings] = useState<RecentSecFiling[]>([]);
-  const [cachedFilings, setCachedFilings] = useState<Filing[]>([]);
-  const [filingDetail, setFilingDetail] = useState<FilingDetail | null>(null);
   const [financialFacts, setFinancialFacts] = useState<FinancialFactsResponse | null>(null);
   const [factsStatement, setFactsStatement] = useState<FinancialStatement>("income");
   const [factsPeriod, setFactsPeriod] = useState<FinancialPeriod>("annual");
@@ -59,35 +51,6 @@ export function KqkApp() {
   const [status, setStatus] = useState("Ready.");
   const [loading, setLoading] = useState(false);
 
-  const filingChoices = useMemo(() => {
-    const cachedByAccession = new Map(
-      cachedFilings.map((filing) => [filing.accessionNumber, filing])
-    );
-    const recentAccessions = new Set(recentFilings.map((filing) => filing.accessionNumber));
-    const recentChoices = recentFilings.map((filing) => ({
-      key: filing.accessionNumber,
-      formType: filing.formType,
-      filingDate: filing.filingDate,
-      title: filing.title ?? filing.primaryDocument,
-      cached: cachedByAccession.get(filing.accessionNumber) ?? null,
-      recent: filing
-    }));
-    const cachedOnlyChoices = cachedFilings
-      .filter((filing) => !recentAccessions.has(filing.accessionNumber))
-      .map((filing) => ({
-        key: filing.accessionNumber,
-        formType: filing.formType,
-        filingDate: filing.filingDate,
-        title: filing.title ?? filing.accessionNumber,
-        cached: filing,
-        recent: null
-      }));
-
-    return [...recentChoices, ...cachedOnlyChoices].sort((a, b) =>
-      b.filingDate.localeCompare(a.filingDate)
-    );
-  }, [cachedFilings, recentFilings]);
-
   const selectedCompany = companies.find((company) => company.id === selectedCompanyId) ?? null;
   const statementMetrics =
     financialFacts?.metrics.filter((metric) => metric.statement === factsStatement) ?? [];
@@ -95,7 +58,6 @@ export function KqkApp() {
     statementMetrics.find((metric) => metric.key === selectedMetricKey) ??
     statementMetrics[0] ??
     null;
-  const localHtmlUrl = filingDetail ? `/api/filings/${filingDetail.filing.id}/html` : "";
 
   useEffect(() => {
     void loadCompanies();
@@ -109,11 +71,9 @@ export function KqkApp() {
 
   async function loadCompany(id: number) {
     const response = await fetch(`/api/companies/${id}`);
-    const data = await response.json();
+    await response.json();
     setSelectedCompanyId(id);
-    setCachedFilings(data.filings ?? []);
     setRecentFilings([]);
-    setFilingDetail(null);
     setFinancialFacts(null);
     setFactsError(null);
     setStatus("Company selected. Fetch recent SEC filings next.");
@@ -122,7 +82,7 @@ export function KqkApp() {
 
   async function deleteCompany(company: Company) {
     const label = company.ticker ?? company.name;
-    if (!window.confirm(`Delete ${label} and all cached filings?`)) return;
+    if (!window.confirm(`Delete ${label} and cached financial facts?`)) return;
 
     setLoading(true);
     setStatus(`Deleting ${label}...`);
@@ -134,8 +94,6 @@ export function KqkApp() {
       if (selectedCompanyId === company.id) {
         setSelectedCompanyId(null);
         setRecentFilings([]);
-        setCachedFilings([]);
-        setFilingDetail(null);
         setFinancialFacts(null);
         setFactsError(null);
       }
@@ -163,7 +121,7 @@ export function KqkApp() {
       setIdentifier("");
       await loadCompanies();
       await loadCompany(data.company.id);
-      await fetchRecentFilings(data.company.id, { openLatest: true });
+      await fetchRecentFilings(data.company.id);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not add company.");
     } finally {
@@ -171,10 +129,7 @@ export function KqkApp() {
     }
   }
 
-  async function fetchRecentFilings(
-    companyId = selectedCompanyId,
-    options: { openLatest?: boolean } = {}
-  ) {
+  async function fetchRecentFilings(companyId = selectedCompanyId) {
     if (!companyId) return;
     setStatus("Fetching recent SEC filing list...");
     try {
@@ -183,16 +138,7 @@ export function KqkApp() {
       if (!response.ok) throw new Error(data.error);
       const filings = (data.filings ?? []) as RecentSecFiling[];
       setRecentFilings(filings);
-
-      if (options.openLatest && filings[0]) {
-        setStatus("Fetching latest filing from SEC...");
-        const filing = await cacheFiling(filings[0], { companyId, force: true });
-        await refreshCachedFilings(companyId);
-        await openFiling(filing.id);
-        setStatus("Latest filing cached and opened.");
-      } else {
-        setStatus(`Found ${filings.length} recent SEC filings.`);
-      }
+      setStatus(`Found ${filings.length} recent SEC filings.`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not fetch SEC filing list.");
     }
@@ -202,100 +148,9 @@ export function KqkApp() {
     if (!selectedCompanyId) return;
     setLoading(true);
     try {
-      setStatus("Fetching recent SEC filing list...");
-      const response = await fetch(`/api/companies/${selectedCompanyId}/sec-filings`);
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error);
-
-      const filings = (data.filings ?? []) as RecentSecFiling[];
-      setRecentFilings(filings);
-
-      let latestFiling: Filing | null = null;
-      for (const [index, filing] of filings.entries()) {
-        setStatus(`Refreshing ${index + 1} of ${filings.length}: ${filing.formType} ${filing.filingDate}...`);
-        const cached = await cacheFiling(filing, { companyId: selectedCompanyId, force: true });
-        latestFiling ??= cached;
-        await new Promise((resolve) => setTimeout(resolve, 150));
-      }
-
-      await refreshCachedFilings(selectedCompanyId);
-      if (latestFiling) {
-        await openFiling(latestFiling.id);
-      }
-      setStatus(`Refreshed ${filings.length} recent filings.`);
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not refresh recent filings.");
+      await fetchRecentFilings(selectedCompanyId);
     } finally {
       setLoading(false);
-    }
-  }
-
-  async function cacheFiling(
-    filing: RecentSecFiling,
-    options: { companyId?: number; force?: boolean } = {}
-  ): Promise<Filing> {
-    const companyId = options.companyId ?? selectedCompanyId;
-    if (!companyId) throw new Error("Choose a company first.");
-    setStatus(
-      `${options.force ? "Refreshing" : "Fetching"} ${filing.formType} filed ${filing.filingDate} from SEC...`
-    );
-    const response = await fetch(`/api/companies/${companyId}/ingest`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...filing, force: options.force })
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error);
-    return data.filing as Filing;
-  }
-
-  async function cacheAndOpenFiling(
-    filing: RecentSecFiling,
-    options: { companyId?: number; force?: boolean } = {}
-  ) {
-    const companyId = options.companyId ?? selectedCompanyId;
-    if (!companyId) return;
-    const cached = await cacheFiling(filing, options);
-    await refreshCachedFilings(companyId);
-    await openFiling(cached.id);
-    setStatus(options.force ? "Cached filing refreshed and opened." : "Filing cached and opened.");
-  }
-
-  async function refreshCachedFilings(companyId: number) {
-    const response = await fetch(`/api/companies/${companyId}`);
-    const data = await response.json();
-    setCachedFilings(data.filings ?? []);
-  }
-
-  async function openFiling(filingId: number) {
-    const response = await fetch(`/api/filings/${filingId}`);
-    const data = await response.json();
-    if (!response.ok) {
-      setStatus(data.error ?? "Could not open filing.");
-      return;
-    }
-    setFilingDetail(data);
-    setStatus("Filing open.");
-  }
-
-  async function openOrFetchFiling(choice: {
-    cached: Filing | null;
-    recent: RecentSecFiling | null;
-  }) {
-    if (choice.cached) {
-      await openFiling(choice.cached.id);
-      return;
-    }
-
-    if (choice.recent) {
-      setLoading(true);
-      try {
-        await cacheAndOpenFiling(choice.recent);
-      } catch (error) {
-        setStatus(error instanceof Error ? error.message : "Could not fetch filing.");
-      } finally {
-        setLoading(false);
-      }
     }
   }
 
@@ -333,16 +188,17 @@ export function KqkApp() {
     setSelectedMetricKey(nextMetric?.key ?? "revenue");
   }
 
-  function formatCacheTime(value: string) {
+  function formatStoredTime(value: string) {
     return new Intl.DateTimeFormat(undefined, {
       dateStyle: "medium",
       timeStyle: "short"
     }).format(new Date(value));
   }
 
-  function filingTitle(choice: { formType: string; title: string }) {
-    const normalizedTitle = choice.title.trim().toLowerCase();
-    const normalizedForm = choice.formType.trim().toLowerCase();
+  function filingTitle(filing: RecentSecFiling) {
+    const title = filing.title ?? filing.primaryDocument;
+    const normalizedTitle = title.trim().toLowerCase();
+    const normalizedForm = filing.formType.trim().toLowerCase();
 
     if (
       normalizedTitle === normalizedForm ||
@@ -352,14 +208,14 @@ export function KqkApp() {
       return null;
     }
 
-    return choice.title;
+    return title;
   }
 
   return (
     <main className="shell">
       <header className="topbar">
         <div className="brand">
-          <p className="eyebrow">SEC Filing Viewer</p>
+          <p className="eyebrow">SEC Company Dashboard</p>
           <h1>KQK</h1>
         </div>
         <p className={loading ? "status busy" : "status"}>{loading ? "Working..." : status}</p>
@@ -429,30 +285,34 @@ export function KqkApp() {
             </button>
           </div>
           <div className="list compact">
-            {filingChoices.length === 0 ? (
+            {recentFilings.length === 0 ? (
               <div className="emptyState">
                 <strong>No filings loaded</strong>
                 <span>Select a company, then refresh recent SEC filings.</span>
               </div>
             ) : null}
-            {filingChoices.map((choice) => (
-              <button
-                className={choice.cached?.id === filingDetail?.filing.id ? "listItem active" : "listItem"}
-                key={choice.key}
-                onClick={() => openOrFetchFiling(choice)}
-                type="button"
-              >
+            {recentFilings.map((filing) => (
+              <article className="listItem filingRow" key={filing.accessionNumber}>
                 <span className="itemTopline">
-                  <strong>{choice.formType}</strong>
-                  <span>{choice.filingDate}</span>
+                  <span className="filingIdentity">
+                    <strong>{filing.formType}</strong>
+                    <span>{filing.filingDate}</span>
+                  </span>
+                  <a
+                    aria-label={`Open ${filing.formType} filed ${filing.filingDate} on SEC`}
+                    className="sourceTextLink"
+                    href={filing.secUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    title="Open on SEC"
+                  >
+                    <svg aria-hidden="true" viewBox="0 0 16 16">
+                      <path d="M6 4l4 4-4 4" />
+                    </svg>
+                  </a>
                 </span>
-                {filingTitle(choice) ? <span>{filingTitle(choice)}</span> : null}
-                <span className={choice.cached ? "cacheState cached" : "cacheState"}>
-                  {choice.cached
-                    ? `Cached ${formatCacheTime(choice.cached.updatedAt)}`
-                    : "Not cached"}
-                </span>
-              </button>
+                {filingTitle(filing) ? <span>{filingTitle(filing)}</span> : null}
+              </article>
             ))}
           </div>
         </div>
@@ -506,7 +366,7 @@ export function KqkApp() {
           ) : financialFacts ? (
             <>
               <p className="muted factsMeta">
-                Source: SEC company facts · Cached {formatCacheTime(financialFacts.cachedAt)}
+                Source: SEC company facts · Cached {formatStoredTime(financialFacts.cachedAt)}
               </p>
               <div className="statementTabs segmented" aria-label="Financial statement">
                 {FINANCIAL_STATEMENTS.map((statement) => (
@@ -566,31 +426,6 @@ export function KqkApp() {
         </section>
       ) : null}
 
-      {filingDetail ? (
-        <section className="viewer">
-          <div className="viewerHeader">
-            <div>
-              <p className="eyebrow">
-                {filingDetail.company?.ticker ?? "Company"} · {filingDetail.filing.formType}
-              </p>
-              <h2>{filingDetail.filing.filingDate}</h2>
-              <p className="muted">Cached {formatCacheTime(filingDetail.filing.updatedAt)}</p>
-            </div>
-            <a className="buttonLink" href={filingDetail.filing.secUrl} target="_blank" rel="noreferrer">
-              Open on SEC
-            </a>
-          </div>
-          <iframe title="Cached SEC filing HTML" src={localHtmlUrl} />
-        </section>
-      ) : (
-        <section className="viewer emptyViewer">
-          <div>
-            <p className="eyebrow">Viewer</p>
-            <h2>No Filing Open</h2>
-            <p className="muted">Choose a cached filing or fetch one from SEC to display it here.</p>
-          </div>
-        </section>
-      )}
     </main>
   );
 }

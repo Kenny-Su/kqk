@@ -43,7 +43,7 @@ async function secFetch(url: string) {
   const response = await fetch(url, {
     headers: {
       "User-Agent": USER_AGENT,
-      Accept: "application/json, text/html;q=0.9, text/plain;q=0.8"
+      Accept: "application/json"
     }
   });
 
@@ -96,47 +96,34 @@ export async function getRecentFilings(cik: string): Promise<RecentSecFiling[]> 
   const wantedForms = new Set(["10-K", "10-Q", "8-K"]);
 
   return recent.accessionNumber
-    .map((accessionNumber, index) => ({
-      accessionNumber,
-      formType: recent.form[index],
-      filingDate: recent.filingDate[index],
-      periodEndDate: recent.reportDate[index] || null,
-      primaryDocument: recent.primaryDocument[index],
-      title: recent.primaryDocDescription[index] || null
-    }))
+    .map((accessionNumber, index) => {
+      const primaryDocument = recent.primaryDocument[index];
+      return {
+        accessionNumber,
+        formType: recent.form[index],
+        filingDate: recent.filingDate[index],
+        periodEndDate: recent.reportDate[index] || null,
+        primaryDocument,
+        secUrl: filingSecUrl({
+          cik,
+          accessionNumber,
+          primaryDocument
+        }),
+        title: recent.primaryDocDescription[index] || null
+      };
+    })
     .filter((filing) => wantedForms.has(filing.formType))
     .slice(0, 20);
 }
 
-export async function downloadFiling(input: {
+export function filingSecUrl(input: {
   cik: string;
   accessionNumber: string;
   primaryDocument: string;
-  force?: boolean;
 }) {
   const compactAccession = input.accessionNumber.replace(/-/g, "");
   const cikNumber = String(Number(input.cik));
-  const secUrl = `${SEC_BASE}/Archives/edgar/data/${cikNumber}/${compactAccession}/${input.primaryDocument}`;
-  const localPath = cachePath(input.cik, `${input.accessionNumber}-${input.primaryDocument}`);
-
-  mkdirSync(join(process.cwd(), "data", "sec-cache", input.cik), { recursive: true });
-
-  let html: string;
-  try {
-    if (input.force) {
-      throw new Error("Force refresh requested.");
-    }
-    html = readFileSync(localPath, "utf8");
-  } catch {
-    const response = await secFetch(secUrl);
-    html = await response.text();
-    writeFileSync(localPath, html, "utf8");
-  }
-
-  return {
-    secUrl,
-    localPath
-  };
+  return `${SEC_BASE}/Archives/edgar/data/${cikNumber}/${compactAccession}/${input.primaryDocument}`;
 }
 
 export async function getCompanyFinancialFacts(input: {
@@ -144,7 +131,7 @@ export async function getCompanyFinancialFacts(input: {
   force?: boolean;
 }): Promise<{ cachedAt: string; metrics: FinancialMetric[]; sourceUrl: string }> {
   const sourceUrl = `${SEC_DATA_BASE}/api/xbrl/companyfacts/CIK${input.cik}.json`;
-  const localPath = cachePath(input.cik, "companyfacts.json");
+  const cacheFilePath = cachePath(input.cik, "companyfacts.json");
 
   mkdirSync(join(process.cwd(), "data", "sec-cache", input.cik), { recursive: true });
 
@@ -153,14 +140,14 @@ export async function getCompanyFinancialFacts(input: {
     if (input.force) {
       throw new Error("Force refresh requested.");
     }
-    raw = readFileSync(localPath, "utf8");
+    raw = readFileSync(cacheFilePath, "utf8");
   } catch {
     const response = await secFetch(sourceUrl);
     raw = await response.text();
-    writeFileSync(localPath, raw, "utf8");
+    writeFileSync(cacheFilePath, raw, "utf8");
   }
 
-  const cachedAt = statSync(localPath).mtime.toISOString();
+  const cachedAt = statSync(cacheFilePath).mtime.toISOString();
   const data = JSON.parse(raw) as CompanyFactsResponse;
 
   return {

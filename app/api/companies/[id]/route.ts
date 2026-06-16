@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { deleteCompanyById, findCompanyById, listFilingsForCompany } from "@/lib/db";
+import { deleteCompanyById, findCompanyById } from "@/lib/db";
 
 export const runtime = "nodejs";
 
@@ -17,10 +17,7 @@ export async function GET(_request: Request, { params }: Params) {
     return NextResponse.json({ error: "Company not found." }, { status: 404 });
   }
 
-  return NextResponse.json({
-    company,
-    filings: listFilingsForCompany(company.id)
-  });
+  return NextResponse.json({ company });
 }
 
 export async function DELETE(_request: Request, { params }: Params) {

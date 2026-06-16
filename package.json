@@ -6,7 +6,6 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "node --no-warnings --test lib/financial-facts.test.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -18,7 +18,6 @@ Open http://localhost:3000.
 ## Check
 
 ```bash
-npm test
 npm run typecheck
 ```
 

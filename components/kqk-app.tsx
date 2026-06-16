@@ -554,7 +554,7 @@ export function KqkApp() {
                   timeFrame={factsTimeFrame}
                 />
               ) : (
-                <div className="noMetricData">No reliable SEC facts available.</div>
+                <div className="noMetricData">No SEC facts available.</div>
               )}
             </>
           ) : (
@@ -613,14 +613,13 @@ function FinancialMetricCard({
         <div>
           <h3>{metric.label}</h3>
           <p className="muted">
-            {latest ? pointLabel(latest) : "No reliable SEC facts available"}
+            {latest ? pointLabel(latest) : "No SEC facts available"}
           </p>
         </div>
         {latest ? <strong>{formatMoney(latest.value)}</strong> : null}
       </div>
       <div className="metricContext">
         <p>{metric.description}</p>
-        <span>{metric.reliability === "high" ? "High reliability" : metric.reliability}</span>
       </div>
       {metric.warnings.length > 0 ? (
         <p className="metricWarning">{metric.warnings[0]}</p>
@@ -628,7 +627,7 @@ function FinancialMetricCard({
       {points.length > 0 ? (
         <MetricChart points={points} />
       ) : (
-        <div className="noMetricData">No reliable SEC facts available.</div>
+        <div className="noMetricData">No SEC facts available.</div>
       )}
     </article>
   );

@@ -523,17 +523,6 @@ h2 {
   margin: 0;
 }
 
-.metricContext span {
-  flex: 0 0 auto;
-  border: 1px solid rgba(31, 107, 69, 0.24);
-  border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--accent-strong);
-  padding: 4px 9px;
-  font-size: 0.78rem;
-  font-weight: 700;
-}
-
 .metricWarning {
   margin: 0;
   border: 1px solid rgba(166, 111, 0, 0.22);

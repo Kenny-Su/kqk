@@ -1,12 +1,46 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import type { Company, Filing, RecentSecFiling } from "@/lib/types";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis
+} from "recharts";
+import type {
+  Company,
+  Filing,
+  FinancialDataPoint,
+  FinancialFactsResponse,
+  FinancialMetric,
+  FinancialPeriod,
+  FinancialStatement,
+  RecentSecFiling
+} from "@/lib/types";
 
 type FilingDetail = {
   filing: Filing;
   company?: Company;
 };
+
+type FinancialTimeFrame = "1y" | "3y" | "5y" | "10y" | "all";
+
+const FINANCIAL_TIME_FRAMES: Array<{ label: string; value: FinancialTimeFrame }> = [
+  { label: "1Y", value: "1y" },
+  { label: "3Y", value: "3y" },
+  { label: "5Y", value: "5y" },
+  { label: "10Y", value: "10y" },
+  { label: "All", value: "all" }
+];
+
+const FINANCIAL_STATEMENTS: Array<{ label: string; value: FinancialStatement }> = [
+  { label: "Income Statement", value: "income" },
+  { label: "Balance Sheet", value: "balance" },
+  { label: "Cash Flow", value: "cashFlow" }
+];
 
 export function KqkApp() {
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -14,6 +48,13 @@ export function KqkApp() {
   const [recentFilings, setRecentFilings] = useState<RecentSecFiling[]>([]);
   const [cachedFilings, setCachedFilings] = useState<Filing[]>([]);
   const [filingDetail, setFilingDetail] = useState<FilingDetail | null>(null);
+  const [financialFacts, setFinancialFacts] = useState<FinancialFactsResponse | null>(null);
+  const [factsStatement, setFactsStatement] = useState<FinancialStatement>("income");
+  const [factsPeriod, setFactsPeriod] = useState<FinancialPeriod>("annual");
+  const [factsTimeFrame, setFactsTimeFrame] = useState<FinancialTimeFrame>("5y");
+  const [selectedMetricKey, setSelectedMetricKey] = useState("revenue");
+  const [factsLoading, setFactsLoading] = useState(false);
+  const [factsError, setFactsError] = useState<string | null>(null);
   const [identifier, setIdentifier] = useState("");
   const [status, setStatus] = useState("Ready.");
   const [loading, setLoading] = useState(false);
@@ -48,6 +89,12 @@ export function KqkApp() {
   }, [cachedFilings, recentFilings]);
 
   const selectedCompany = companies.find((company) => company.id === selectedCompanyId) ?? null;
+  const statementMetrics =
+    financialFacts?.metrics.filter((metric) => metric.statement === factsStatement) ?? [];
+  const selectedMetric =
+    statementMetrics.find((metric) => metric.key === selectedMetricKey) ??
+    statementMetrics[0] ??
+    null;
   const localHtmlUrl = filingDetail ? `/api/filings/${filingDetail.filing.id}/html` : "";
 
   useEffect(() => {
@@ -67,7 +114,10 @@ export function KqkApp() {
     setCachedFilings(data.filings ?? []);
     setRecentFilings([]);
     setFilingDetail(null);
+    setFinancialFacts(null);
+    setFactsError(null);
     setStatus("Company selected. Fetch recent SEC filings next.");
+    void loadFinancialFacts(id);
   }
 
   async function deleteCompany(company: Company) {
@@ -86,6 +136,8 @@ export function KqkApp() {
         setRecentFilings([]);
         setCachedFilings([]);
         setFilingDetail(null);
+        setFinancialFacts(null);
+        setFactsError(null);
       }
       await loadCompanies();
       setStatus(`${label} deleted.`);
@@ -247,6 +299,40 @@ export function KqkApp() {
     }
   }
 
+  async function loadFinancialFacts(companyId = selectedCompanyId, options: { force?: boolean } = {}) {
+    if (!companyId) return;
+    setFactsLoading(true);
+    setFactsError(null);
+
+    try {
+      const suffix = options.force ? "?force=true" : "";
+      const response = await fetch(`/api/companies/${companyId}/facts${suffix}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      const facts = data as FinancialFactsResponse;
+      setFinancialFacts(facts);
+      const activeStatementMetrics = facts.metrics.filter(
+        (metric) => metric.statement === factsStatement
+      );
+      if (!activeStatementMetrics.some((metric) => metric.key === selectedMetricKey)) {
+        setSelectedMetricKey(activeStatementMetrics[0]?.key ?? facts.metrics[0]?.key ?? "revenue");
+      }
+      if (options.force) {
+        setStatus("Financial facts refreshed.");
+      }
+    } catch (error) {
+      setFactsError(error instanceof Error ? error.message : "Could not load financial facts.");
+    } finally {
+      setFactsLoading(false);
+    }
+  }
+
+  function selectFinancialStatement(statement: FinancialStatement) {
+    setFactsStatement(statement);
+    const nextMetric = financialFacts?.metrics.find((metric) => metric.statement === statement);
+    setSelectedMetricKey(nextMetric?.key ?? "revenue");
+  }
+
   function formatCacheTime(value: string) {
     return new Intl.DateTimeFormat(undefined, {
       dateStyle: "medium",
@@ -372,6 +458,114 @@ export function KqkApp() {
         </div>
       </section>
 
+      {selectedCompany ? (
+        <section className="panel factsPanel">
+          <div className="panelHeader">
+            <div>
+              <p className="eyebrow">{selectedCompany.ticker ?? selectedCompany.cik}</p>
+              <h2>Financial Facts</h2>
+            </div>
+            <div className="factsControls">
+              <div className="segmented" aria-label="Financial facts period">
+                <button
+                  className={factsPeriod === "annual" ? "activeSegment" : ""}
+                  onClick={() => setFactsPeriod("annual")}
+                  type="button"
+                >
+                  Annual
+                </button>
+                <button
+                  className={factsPeriod === "quarterly" ? "activeSegment" : ""}
+                  onClick={() => setFactsPeriod("quarterly")}
+                  type="button"
+                >
+                  Quarterly
+                </button>
+              </div>
+              <button
+                className="secondaryButton"
+                disabled={factsLoading}
+                onClick={() => loadFinancialFacts(selectedCompany.id, { force: true })}
+                type="button"
+              >
+                Refresh Facts
+              </button>
+            </div>
+          </div>
+
+          {factsError ? (
+            <div className="emptyState">
+              <strong>Could not load financial facts</strong>
+              <span>{factsError}</span>
+            </div>
+          ) : factsLoading && !financialFacts ? (
+            <div className="emptyState">
+              <strong>Loading financial facts</strong>
+              <span>Fetching structured SEC XBRL data.</span>
+            </div>
+          ) : financialFacts ? (
+            <>
+              <p className="muted factsMeta">
+                Source: SEC company facts · Cached {formatCacheTime(financialFacts.cachedAt)}
+              </p>
+              <div className="statementTabs segmented" aria-label="Financial statement">
+                {FINANCIAL_STATEMENTS.map((statement) => (
+                  <button
+                    className={factsStatement === statement.value ? "activeSegment" : ""}
+                    key={statement.value}
+                    onClick={() => selectFinancialStatement(statement.value)}
+                    type="button"
+                  >
+                    {statement.label}
+                  </button>
+                ))}
+              </div>
+              <div className="metricSelector" aria-label="Financial metric">
+                {statementMetrics.map((metric) => (
+                  <button
+                    className={metric.key === selectedMetricKey ? "metricOption activeMetric" : "metricOption"}
+                    key={metric.key}
+                    onClick={() => setSelectedMetricKey(metric.key)}
+                    type="button"
+                  >
+                    {metric.label}
+                  </button>
+                ))}
+              </div>
+              <div className="timeFrameSelector" aria-label="Financial facts time frame">
+                <span className="selectorLabel">Time frame</span>
+                <div className="segmented">
+                  {FINANCIAL_TIME_FRAMES.map((timeFrame) => (
+                    <button
+                      className={factsTimeFrame === timeFrame.value ? "activeSegment" : ""}
+                      key={timeFrame.value}
+                      onClick={() => setFactsTimeFrame(timeFrame.value)}
+                      type="button"
+                    >
+                      {timeFrame.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {selectedMetric ? (
+                <FinancialMetricCard
+                  metric={selectedMetric}
+                  period={factsPeriod}
+                  timeFrame={factsTimeFrame}
+                />
+              ) : (
+                <div className="noMetricData">No reliable SEC facts available.</div>
+              )}
+            </>
+          ) : (
+            <div className="emptyState">
+              <strong>No SEC facts loaded</strong>
+              <span>Financial facts load when a company is selected.</span>
+            </div>
+          )}
+        </section>
+      ) : null}
+
       {filingDetail ? (
         <section className="viewer">
           <div className="viewerHeader">
@@ -399,4 +593,144 @@ export function KqkApp() {
       )}
     </main>
   );
+}
+
+function FinancialMetricCard({
+  metric,
+  period,
+  timeFrame
+}: {
+  metric: FinancialMetric;
+  period: FinancialPeriod;
+  timeFrame: FinancialTimeFrame;
+}) {
+  const points = sliceMetricPoints(metric[period], period, timeFrame);
+  const latest = points.at(-1);
+
+  return (
+    <article className="metricCard">
+      <div className="metricHeader">
+        <div>
+          <h3>{metric.label}</h3>
+          <p className="muted">
+            {latest ? pointLabel(latest) : "No reliable SEC facts available"}
+          </p>
+        </div>
+        {latest ? <strong>{formatMoney(latest.value)}</strong> : null}
+      </div>
+      <div className="metricContext">
+        <p>{metric.description}</p>
+        <span>{metric.reliability === "high" ? "High reliability" : metric.reliability}</span>
+      </div>
+      {metric.warnings.length > 0 ? (
+        <p className="metricWarning">{metric.warnings[0]}</p>
+      ) : null}
+      {points.length > 0 ? (
+        <MetricChart points={points} />
+      ) : (
+        <div className="noMetricData">No reliable SEC facts available.</div>
+      )}
+    </article>
+  );
+}
+
+function sliceMetricPoints(
+  points: FinancialDataPoint[],
+  period: FinancialPeriod,
+  timeFrame: FinancialTimeFrame
+) {
+  if (timeFrame === "all") return points;
+
+  const years = Number(timeFrame.replace("y", ""));
+  const pointCount = period === "annual" ? years : years * 4;
+  return points.slice(-pointCount);
+}
+
+function MetricChart({ points }: { points: FinancialDataPoint[] }) {
+  const chartData = points.map((point) => ({
+    fiscalPeriod: pointLabel(point),
+    label: point.end,
+    source: point.source,
+    value: point.value
+  }));
+
+  return (
+    <div className="chartFrame">
+      <ResponsiveContainer height={320} width="100%">
+        <AreaChart data={chartData} margin={{ bottom: 26, left: 18, right: 24, top: 16 }}>
+          <CartesianGrid stroke="#dfe4dd" strokeDasharray="3 3" vertical={false} />
+          <XAxis
+            dataKey="label"
+            interval="preserveStartEnd"
+            label={{ value: "Period", position: "insideBottom", offset: -16 }}
+            stroke="#66706a"
+            tick={{ fill: "#66706a", fontSize: 12 }}
+            tickLine={false}
+          />
+          <YAxis
+            axisLine={false}
+            label={{ value: "USD", angle: -90, position: "insideLeft" }}
+            stroke="#66706a"
+            tick={{ fill: "#66706a", fontSize: 12 }}
+            tickFormatter={formatMoney}
+            tickLine={false}
+            width={72}
+          />
+          <Tooltip
+            contentStyle={{
+              border: "1px solid #dfe4dd",
+              borderRadius: 8,
+              boxShadow: "0 12px 28px rgba(35, 45, 38, 0.12)"
+            }}
+            formatter={(value) => [formatMoney(Number(value)), "Value"]}
+            labelFormatter={(_, payload) => {
+              const point = payload?.[0]?.payload as {
+                fiscalPeriod?: string;
+                label?: string;
+                source?: FinancialDataPoint["source"];
+              };
+              const sourceLabel = point?.source === "derived" ? " · Derived" : "";
+              return point?.fiscalPeriod
+                ? `${point.fiscalPeriod} (${point.label})${sourceLabel}`
+                : `Period: ${point?.label ?? ""}${sourceLabel}`;
+            }}
+          />
+          <Area
+            dataKey="value"
+            fill="rgba(31, 107, 69, 0.14)"
+            stroke="#1f6b45"
+            strokeWidth={3}
+            type="monotone"
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function formatMoney(value: number) {
+  const sign = value < 0 ? "-" : "";
+  const absolute = Math.abs(value);
+
+  if (absolute >= 1_000_000_000_000) {
+    return `${sign}$${(absolute / 1_000_000_000_000).toFixed(1)}T`;
+  }
+
+  if (absolute >= 1_000_000_000) {
+    return `${sign}$${(absolute / 1_000_000_000).toFixed(1)}B`;
+  }
+
+  if (absolute >= 1_000_000) {
+    return `${sign}$${(absolute / 1_000_000).toFixed(1)}M`;
+  }
+
+  return `${sign}$${Math.round(absolute).toLocaleString()}`;
+}
+
+function pointLabel(point: { end: string; fiscalYear: number | null; fiscalPeriod: string | null }) {
+  if (point.fiscalYear && point.fiscalPeriod) {
+    return `${point.fiscalYear} ${point.fiscalPeriod}`;
+  }
+
+  return point.end;
 }

@@ -1,8 +1,12 @@
 import "server-only";
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { RecentSecFiling } from "@/lib/types";
+import {
+  normalizeFinancialMetrics,
+  type CompanyFactsResponse
+} from "@/lib/financial-facts";
+import type { FinancialMetric, RecentSecFiling } from "@/lib/types";
 
 type CompanyTickerEntry = {
   cik_str: number;
@@ -133,5 +137,36 @@ export async function downloadFiling(input: {
   return {
     secUrl,
     localPath
+  };
+}
+
+export async function getCompanyFinancialFacts(input: {
+  cik: string;
+  force?: boolean;
+}): Promise<{ cachedAt: string; metrics: FinancialMetric[]; sourceUrl: string }> {
+  const sourceUrl = `${SEC_DATA_BASE}/api/xbrl/companyfacts/CIK${input.cik}.json`;
+  const localPath = cachePath(input.cik, "companyfacts.json");
+
+  mkdirSync(join(process.cwd(), "data", "sec-cache", input.cik), { recursive: true });
+
+  let raw: string;
+  try {
+    if (input.force) {
+      throw new Error("Force refresh requested.");
+    }
+    raw = readFileSync(localPath, "utf8");
+  } catch {
+    const response = await secFetch(sourceUrl);
+    raw = await response.text();
+    writeFileSync(localPath, raw, "utf8");
+  }
+
+  const cachedAt = statSync(localPath).mtime.toISOString();
+  const data = JSON.parse(raw) as CompanyFactsResponse;
+
+  return {
+    cachedAt,
+    metrics: normalizeFinancialMetrics(data),
+    sourceUrl
   };
 }

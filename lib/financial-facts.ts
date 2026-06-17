@@ -1,8 +1,6 @@
 import type {
   FinancialDataPoint,
   FinancialMetric,
-  FinancialMetricImportance,
-  FinancialMetricReliability,
   FinancialPeriod,
   FinancialStatement
 } from "./types";
@@ -33,9 +31,6 @@ type MetricDefinition = {
   key: string;
   label: string;
   statement: FinancialStatement;
-  importance: FinancialMetricImportance;
-  reliability: FinancialMetricReliability;
-  description: string;
   kind: "duration" | "instant";
   unit: "USD";
   tags: string[];
@@ -64,9 +59,6 @@ const FINANCIAL_METRICS: MetricDefinition[] = [
     key: "revenue",
     label: "Revenue",
     statement: "income",
-    importance: "foundation",
-    reliability: "high",
-    description: "Sales generated from the company's goods and services.",
     kind: "duration",
     unit: "USD",
     tags: [
@@ -81,9 +73,6 @@ const FINANCIAL_METRICS: MetricDefinition[] = [
     key: "operatingIncome",
     label: "Operating Income",
     statement: "income",
-    importance: "foundation",
-    reliability: "high",
-    description: "Profit from core operations before interest and taxes.",
     kind: "duration",
     unit: "USD",
     tags: ["OperatingIncomeLoss"],
@@ -94,9 +83,6 @@ const FINANCIAL_METRICS: MetricDefinition[] = [
     key: "netIncome",
     label: "Net Income",
     statement: "income",
-    importance: "foundation",
-    reliability: "high",
-    description: "Profit after all expenses, taxes, gains, and losses.",
     kind: "duration",
     unit: "USD",
     tags: ["NetIncomeLoss"],
@@ -107,9 +93,6 @@ const FINANCIAL_METRICS: MetricDefinition[] = [
     key: "assets",
     label: "Assets",
     statement: "balance",
-    importance: "foundation",
-    reliability: "high",
-    description: "Resources the company controls at a point in time.",
     kind: "instant",
     unit: "USD",
     tags: ["Assets"],
@@ -120,9 +103,6 @@ const FINANCIAL_METRICS: MetricDefinition[] = [
     key: "liabilities",
     label: "Liabilities",
     statement: "balance",
-    importance: "foundation",
-    reliability: "high",
-    description: "Obligations the company owes at a point in time.",
     kind: "instant",
     unit: "USD",
     tags: ["Liabilities"],
@@ -133,9 +113,6 @@ const FINANCIAL_METRICS: MetricDefinition[] = [
     key: "equity",
     label: "Equity",
     statement: "balance",
-    importance: "foundation",
-    reliability: "high",
-    description: "Owners' residual claim after liabilities are subtracted from assets.",
     kind: "instant",
     unit: "USD",
     tags: [
@@ -149,9 +126,6 @@ const FINANCIAL_METRICS: MetricDefinition[] = [
     key: "cash",
     label: "Cash",
     statement: "balance",
-    importance: "foundation",
-    reliability: "high",
-    description: "Cash and cash equivalents available on the balance sheet date.",
     kind: "instant",
     unit: "USD",
     tags: [
@@ -165,9 +139,6 @@ const FINANCIAL_METRICS: MetricDefinition[] = [
     key: "operatingCashFlow",
     label: "Operating Cash Flow",
     statement: "cashFlow",
-    importance: "foundation",
-    reliability: "high",
-    description: "Cash generated or used by the company's normal operations.",
     kind: "duration",
     unit: "USD",
     tags: ["NetCashProvidedByUsedInOperatingActivities"],
@@ -178,9 +149,6 @@ const FINANCIAL_METRICS: MetricDefinition[] = [
     key: "investingCashFlow",
     label: "Investing Cash Flow",
     statement: "cashFlow",
-    importance: "foundation",
-    reliability: "high",
-    description: "Cash generated or used by investing activities, such as assets and acquisitions.",
     kind: "duration",
     unit: "USD",
     tags: ["NetCashProvidedByUsedInInvestingActivities"],
@@ -191,9 +159,6 @@ const FINANCIAL_METRICS: MetricDefinition[] = [
     key: "financingCashFlow",
     label: "Financing Cash Flow",
     statement: "cashFlow",
-    importance: "foundation",
-    reliability: "high",
-    description: "Cash generated or used by financing activities, such as debt and stock transactions.",
     kind: "duration",
     unit: "USD",
     tags: ["NetCashProvidedByUsedInFinancingActivities"],
@@ -245,9 +210,6 @@ function normalizeMetric(
     key: definition.key,
     label: definition.label,
     statement: definition.statement,
-    importance: definition.importance,
-    reliability: definition.reliability,
-    description: definition.description,
     unit: definition.unit,
     annual: annual.points,
     quarterly: quarterly.points,
@@ -417,8 +379,6 @@ function toFinancialPoint(
     form: valueFact.form ?? "",
     accessionNumber: valueFact.accn ?? null,
     value: Number(valueFact.val),
-    source: "reported",
-    quality: "high",
     warnings: [],
     tag: valueFact.tag,
     unit: valueFact.unit
@@ -490,7 +450,7 @@ function deriveFourthQuarters(
 
       if (definition.nonNegative && (value < 0 || value > annualPoint.value)) {
         warnings.push(
-          `${definition.label}: omitted suspicious derived Q4 ending ${annualPoint.end}.`
+          `${definition.label}: omitted suspicious Q4 ending ${annualPoint.end}.`
         );
         return null;
       }
@@ -499,10 +459,8 @@ function deriveFourthQuarters(
         ...annualPoint,
         fiscalPeriod: "Q4",
         value,
-        source: "derived",
-        quality: "derived",
-        warnings: ["Derived from annual value minus reported Q1-Q3."],
-        tag: `derived:${definition.key}:q4`
+        warnings: [],
+        tag: `${definition.key}:q4`
       };
     })
     .filter((point): point is FinancialDataPoint => point !== null);
@@ -589,10 +547,6 @@ function preferFinancialPoint(
   next: FinancialDataPoint,
   current: FinancialDataPoint
 ) {
-  if (next.source !== current.source) {
-    return next.source === "reported" ? next : current;
-  }
-
   return next.filed.localeCompare(current.filed) > 0 ? next : current;
 }
 

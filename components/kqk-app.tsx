@@ -453,9 +453,6 @@ function FinancialMetricCard({
         </div>
         {latest ? <strong>{formatMoney(latest.value)}</strong> : null}
       </div>
-      <div className="metricContext">
-        <p>{metric.description}</p>
-      </div>
       {metric.warnings.length > 0 ? (
         <p className="metricWarning">{metric.warnings[0]}</p>
       ) : null}
@@ -484,7 +481,6 @@ function MetricChart({ points }: { points: FinancialDataPoint[] }) {
   const chartData = points.map((point) => ({
     fiscalPeriod: pointLabel(point),
     label: point.end,
-    source: point.source,
     value: point.value
   }));
 
@@ -521,12 +517,10 @@ function MetricChart({ points }: { points: FinancialDataPoint[] }) {
               const point = payload?.[0]?.payload as {
                 fiscalPeriod?: string;
                 label?: string;
-                source?: FinancialDataPoint["source"];
               };
-              const sourceLabel = point?.source === "derived" ? " · Derived" : "";
               return point?.fiscalPeriod
-                ? `${point.fiscalPeriod} (${point.label})${sourceLabel}`
-                : `Period: ${point?.label ?? ""}${sourceLabel}`;
+                ? `${point.fiscalPeriod} (${point.label})`
+                : `Period: ${point?.label ?? ""}`;
             }}
           />
           <Area

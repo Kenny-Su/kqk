@@ -18,11 +18,7 @@ export type RecentSecFiling = {
 };
 
 export type FinancialPeriod = "annual" | "quarterly";
-export type FinancialPointSource = "reported" | "derived";
-export type FinancialPointQuality = "high" | "derived" | "caution";
 export type FinancialStatement = "income" | "balance" | "cashFlow";
-export type FinancialMetricImportance = "foundation";
-export type FinancialMetricReliability = "high";
 
 export type FinancialDataPoint = {
   start: string | null;
@@ -33,8 +29,6 @@ export type FinancialDataPoint = {
   form: string;
   accessionNumber: string | null;
   value: number;
-  source: FinancialPointSource;
-  quality: FinancialPointQuality;
   warnings: string[];
   tag: string;
   unit: "USD";
@@ -44,9 +38,6 @@ export type FinancialMetric = {
   key: string;
   label: string;
   statement: FinancialStatement;
-  importance: FinancialMetricImportance;
-  reliability: FinancialMetricReliability;
-  description: string;
   unit: "USD";
   annual: FinancialDataPoint[];
   quarterly: FinancialDataPoint[];

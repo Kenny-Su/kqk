@@ -497,20 +497,6 @@ h2 {
   white-space: nowrap;
 }
 
-.metricContext {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  color: var(--muted);
-  font-size: 0.9rem;
-}
-
-.metricContext p {
-  max-width: 680px;
-  margin: 0;
-}
-
 .metricWarning {
   margin: 0;
   border: 1px solid rgba(166, 111, 0, 0.22);
@@ -614,9 +600,6 @@ h2 {
     flex-direction: column;
   }
 
-  .metricContext {
-    flex-direction: column;
-  }
 }
 
 @media (max-width: 640px) {

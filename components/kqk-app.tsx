@@ -391,9 +391,6 @@ function FinancialMetricCard({ metric }: { metric: FinancialMetric }) {
       <div className="metricHeader">
         <div>
           <h3>{metric.label}</h3>
-          <p className="muted">
-            {latest ? pointPeriodLabel(latest, metric.kind) : "No SEC facts available"}
-          </p>
         </div>
         {latest ? <strong>{formatMoney(latest.value)}</strong> : null}
       </div>

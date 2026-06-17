@@ -14,11 +14,3 @@ npm run dev
 ```
 
 Open http://localhost:3000.
-
-## Check
-
-```bash
-npm run typecheck
-```
-
-Local data lives in `data/` and is disposable.

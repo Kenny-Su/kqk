@@ -1,7 +1,7 @@
 import type {
   FinancialDataPoint,
   FinancialMetric,
-  FinancialPeriod,
+  FinancialMetricKind,
   FinancialStatement
 } from "./types";
 
@@ -31,10 +31,9 @@ type MetricDefinition = {
   key: string;
   label: string;
   statement: FinancialStatement;
-  kind: "duration" | "instant";
+  kind: FinancialMetricKind;
   unit: "USD";
   tags: string[];
-  deriveFourthQuarter: boolean;
   nonNegative: boolean;
 };
 
@@ -45,7 +44,6 @@ type FactCandidate = CompanyFactUnit & {
 };
 
 type SelectedFact = {
-  periodFact: FactCandidate;
   valueFact: FactCandidate;
 };
 
@@ -66,7 +64,6 @@ const FINANCIAL_METRICS: MetricDefinition[] = [
       "Revenues",
       "SalesRevenueNet"
     ],
-    deriveFourthQuarter: true,
     nonNegative: true
   },
   {
@@ -76,7 +73,6 @@ const FINANCIAL_METRICS: MetricDefinition[] = [
     kind: "duration",
     unit: "USD",
     tags: ["OperatingIncomeLoss"],
-    deriveFourthQuarter: true,
     nonNegative: false
   },
   {
@@ -86,7 +82,6 @@ const FINANCIAL_METRICS: MetricDefinition[] = [
     kind: "duration",
     unit: "USD",
     tags: ["NetIncomeLoss"],
-    deriveFourthQuarter: true,
     nonNegative: false
   },
   {
@@ -96,7 +91,6 @@ const FINANCIAL_METRICS: MetricDefinition[] = [
     kind: "instant",
     unit: "USD",
     tags: ["Assets"],
-    deriveFourthQuarter: false,
     nonNegative: true
   },
   {
@@ -106,7 +100,6 @@ const FINANCIAL_METRICS: MetricDefinition[] = [
     kind: "instant",
     unit: "USD",
     tags: ["Liabilities"],
-    deriveFourthQuarter: false,
     nonNegative: true
   },
   {
@@ -119,7 +112,6 @@ const FINANCIAL_METRICS: MetricDefinition[] = [
       "StockholdersEquity",
       "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest"
     ],
-    deriveFourthQuarter: false,
     nonNegative: false
   },
   {
@@ -132,7 +124,6 @@ const FINANCIAL_METRICS: MetricDefinition[] = [
       "CashAndCashEquivalentsAtCarryingValue",
       "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents"
     ],
-    deriveFourthQuarter: false,
     nonNegative: true
   },
   {
@@ -142,7 +133,6 @@ const FINANCIAL_METRICS: MetricDefinition[] = [
     kind: "duration",
     unit: "USD",
     tags: ["NetCashProvidedByUsedInOperatingActivities"],
-    deriveFourthQuarter: true,
     nonNegative: false
   },
   {
@@ -152,7 +142,6 @@ const FINANCIAL_METRICS: MetricDefinition[] = [
     kind: "duration",
     unit: "USD",
     tags: ["NetCashProvidedByUsedInInvestingActivities"],
-    deriveFourthQuarter: true,
     nonNegative: false
   },
   {
@@ -162,12 +151,9 @@ const FINANCIAL_METRICS: MetricDefinition[] = [
     kind: "duration",
     unit: "USD",
     tags: ["NetCashProvidedByUsedInFinancingActivities"],
-    deriveFourthQuarter: true,
     nonNegative: false
   }
 ];
-
-const QUARTER_PERIODS = ["Q1", "Q2", "Q3", "Q4"];
 
 export function normalizeFinancialMetrics(data: CompanyFactsResponse): FinancialMetric[] {
   const usGaap = data.facts?.["us-gaap"] ?? {};
@@ -181,38 +167,20 @@ function normalizeMetric(
   definition: MetricDefinition
 ): FinancialMetric {
   const facts = factsForDefinition(usGaap, definition);
-  const annualResult = normalizePeriodFacts(facts, definition, "annual");
-  const annual = validateMetricPoints(definition, "annual", annualResult.points);
-  const quarterlyResult = normalizePeriodFacts(facts, definition, "quarterly");
-  const labeledQuarterly =
-    definition.kind === "duration"
-      ? labelDurationQuarters(quarterlyResult.points, annual.points)
-      : labelInstantQuarters(quarterlyResult.points);
-  const withFourthQuarters =
-    definition.deriveFourthQuarter
-      ? deriveFourthQuarters(definition, labeledQuarterly, annual.points)
-      : { points: labeledQuarterly, warnings: [] };
-  const quarterly = validateMetricPoints(
-    definition,
-    "quarterly",
-    withFourthQuarters.points
-  );
+  const annualResult = normalizeAnnualFacts(facts, definition);
+  const annual = validateMetricPoints(definition, annualResult.points);
   const warnings = uniqueWarnings([
     ...annualResult.warnings,
-    ...annual.warnings,
-    ...quarterlyResult.warnings,
-    ...withFourthQuarters.warnings,
-    ...quarterly.warnings,
-    ...annualQuarterSumWarnings(definition, annual.points, quarterly.points)
+    ...annual.warnings
   ]);
 
   return {
     key: definition.key,
     label: definition.label,
     statement: definition.statement,
+    kind: definition.kind,
     unit: definition.unit,
     annual: annual.points,
-    quarterly: quarterly.points,
     warnings
   };
 }
@@ -231,16 +199,12 @@ function factsForDefinition(
   );
 }
 
-function normalizePeriodFacts(
+function normalizeAnnualFacts(
   facts: FactCandidate[],
-  definition: MetricDefinition,
-  period: FinancialPeriod
+  definition: MetricDefinition
 ): NormalizedResult {
   const warnings: string[] = [];
-  const candidates = facts.filter((fact) => isUsableFact(fact, definition, period));
-  const periodCandidates = facts.filter((fact) =>
-    isPeriodIdentityFact(fact, definition, period)
-  );
+  const candidates = facts.filter((fact) => isUsableAnnualFact(fact, definition));
   const byPeriod = new Map<string, SelectedFact>();
 
   for (const fact of candidates) {
@@ -249,89 +213,36 @@ function normalizePeriodFacts(
     const current = byPeriod.get(key);
     if (!current) {
       byPeriod.set(key, {
-        periodFact: fact,
         valueFact: fact
       });
       continue;
     }
 
-    if (isEarlierFiledFact(fact, current.periodFact)) {
-      current.periodFact = fact;
-    }
-
-    if (compareFactPreference(fact, current.valueFact, period) > 0) {
+    if (compareFactPreference(fact, current.valueFact) > 0) {
       current.valueFact = fact;
     }
   }
 
-  for (const fact of periodCandidates) {
-    const key = factPeriodKey(fact, definition.kind);
-    if (!key) continue;
-    const current = byPeriod.get(key);
-    if (current && isEarlierFiledFact(fact, current.periodFact)) {
-      current.periodFact = fact;
-    }
-  }
-
   if (facts.length > 0 && byPeriod.size === 0) {
-    warnings.push(`${definition.label}: no usable ${period} ${definition.unit} facts.`);
+    warnings.push(`${definition.label}: no usable annual ${definition.unit} facts.`);
   }
 
   return {
     points: Array.from(byPeriod.values())
-      .map(({ periodFact, valueFact }) => toFinancialPoint(periodFact, valueFact))
+      .map(({ valueFact }) => toFinancialPoint(valueFact))
       .sort(comparePointsByEnd),
     warnings
   };
 }
 
-function isPeriodIdentityFact(
-  fact: FactCandidate,
-  definition: MetricDefinition,
-  period: FinancialPeriod
-) {
-  if (!hasRequiredFactFields(fact, definition.kind)) return false;
-
-  if (period === "annual") {
-    return fact.form === "10-K" && fact.fp === "FY";
-  }
-
-  if (definition.kind === "instant") {
-    return (
-      (fact.form === "10-Q" && /^Q[1-3]$/.test(fact.fp ?? "")) ||
-      (fact.form === "10-K" && fact.fp === "FY")
-    );
-  }
-
-  return (
-    (fact.form === "10-Q" && /^Q[1-3]$/.test(fact.fp ?? "")) ||
-    (fact.form === "10-K" && isQuarterDuration(fact))
-  );
-}
-
-function isUsableFact(
-  fact: FactCandidate,
-  definition: MetricDefinition,
-  period: FinancialPeriod
-) {
+function isUsableAnnualFact(fact: FactCandidate, definition: MetricDefinition) {
   if (!hasRequiredFactFields(fact, definition.kind)) return false;
 
   if (definition.kind === "instant") {
-    return period === "annual"
-      ? fact.form === "10-K" && fact.fp === "FY"
-      : (fact.form === "10-Q" && /^Q[1-3]$/.test(fact.fp ?? "")) ||
-          (fact.form === "10-K" && fact.fp === "FY");
+    return fact.form === "10-K";
   }
 
-  if (period === "annual") {
-    return fact.form === "10-K" && fact.fp === "FY" && isAnnualDuration(fact);
-  }
-
-  return (
-    ((fact.form === "10-Q" && /^Q[1-3]$/.test(fact.fp ?? "")) ||
-      fact.form === "10-K") &&
-    isQuarterDuration(fact)
-  );
+  return fact.form === "10-K" && isAnnualDuration(fact);
 }
 
 function hasRequiredFactFields(fact: FactCandidate, kind: MetricDefinition["kind"]) {
@@ -349,11 +260,6 @@ function isAnnualDuration(fact: CompanyFactUnit) {
   return durationDays(fact.start, fact.end) >= 330 && durationDays(fact.start, fact.end) <= 400;
 }
 
-function isQuarterDuration(fact: CompanyFactUnit) {
-  if (!fact.start || !fact.end) return false;
-  return durationDays(fact.start, fact.end) >= 60 && durationDays(fact.start, fact.end) <= 120;
-}
-
 function durationDays(start: string, end: string) {
   const startTime = Date.parse(start);
   const endTime = Date.parse(end);
@@ -366,16 +272,11 @@ function factPeriodKey(fact: CompanyFactUnit, kind: MetricDefinition["kind"]) {
   return kind === "duration" ? `${fact.start ?? ""}:${fact.end}` : fact.end;
 }
 
-function toFinancialPoint(
-  periodFact: FactCandidate,
-  valueFact: FactCandidate
-): FinancialDataPoint {
+function toFinancialPoint(valueFact: FactCandidate): FinancialDataPoint {
   return {
     start: valueFact.start ?? null,
     end: valueFact.end ?? "",
     filed: valueFact.filed ?? "",
-    fiscalYear: periodFact.fy ?? null,
-    fiscalPeriod: periodFact.fp ?? null,
     form: valueFact.form ?? "",
     accessionNumber: valueFact.accn ?? null,
     value: Number(valueFact.val),
@@ -385,106 +286,19 @@ function toFinancialPoint(
   };
 }
 
-function labelDurationQuarters(
-  quarterly: FinancialDataPoint[],
-  annual: FinancialDataPoint[]
-) {
-  return quarterly.map((point) => {
-    const annualPoint = annual.find(
-      (candidate) =>
-        candidate.start &&
-        point.end > candidate.start &&
-        point.end <= candidate.end
-    );
-    if (!annualPoint) return point;
-
-    return {
-      ...point,
-      fiscalYear: annualPoint.fiscalYear,
-      fiscalPeriod:
-        point.end === annualPoint.end ? "Q4" : cleanQuarterPeriod(point.fiscalPeriod)
-    };
-  });
-}
-
-function labelInstantQuarters(points: FinancialDataPoint[]) {
-  return points.map((point) => ({
-    ...point,
-    fiscalPeriod:
-      point.form === "10-K" && point.fiscalPeriod === "FY"
-        ? "Q4"
-        : cleanQuarterPeriod(point.fiscalPeriod)
-  }));
-}
-
-function deriveFourthQuarters(
-  definition: MetricDefinition,
-  quarterly: FinancialDataPoint[],
-  annual: FinancialDataPoint[]
-): NormalizedResult {
-  const warnings: string[] = [];
-  const derived = annual
-    .map((annualPoint): FinancialDataPoint | null => {
-      if (!annualPoint.start) return null;
-      const annualStart = annualPoint.start;
-      const sameFiscalWindow = quarterly.filter(
-        (point) => point.end > annualStart && point.end <= annualPoint.end
-      );
-      if (sameFiscalWindow.some((point) => point.fiscalPeriod === "Q4")) return null;
-
-      const firstThreeQuarters = ["Q1", "Q2", "Q3"].map((period) =>
-        sameFiscalWindow.find((point) => point.fiscalPeriod === period)
-      );
-      if (firstThreeQuarters.some((point) => !point)) return null;
-
-      const firstThreeTotal = firstThreeQuarters.reduce(
-        (total, point) => total + (point?.value ?? 0),
-        0
-      );
-      const value = annualPoint.value - firstThreeTotal;
-
-      if (!Number.isFinite(value)) {
-        warnings.push(`${definition.label}: omitted Q4 ending ${annualPoint.end}; value is not finite.`);
-        return null;
-      }
-
-      if (definition.nonNegative && (value < 0 || value > annualPoint.value)) {
-        warnings.push(
-          `${definition.label}: omitted suspicious Q4 ending ${annualPoint.end}.`
-        );
-        return null;
-      }
-
-      return {
-        ...annualPoint,
-        fiscalPeriod: "Q4",
-        value,
-        warnings: [],
-        tag: `${definition.key}:q4`
-      };
-    })
-    .filter((point): point is FinancialDataPoint => point !== null);
-
-  return {
-    points: [...quarterly, ...derived].sort(comparePointsByEnd),
-    warnings
-  };
-}
-
 function validateMetricPoints(
   definition: MetricDefinition,
-  period: FinancialPeriod,
   points: FinancialDataPoint[]
 ): NormalizedResult {
   const warnings: string[] = [];
   const cleaned = points.filter((point) => {
     if (!Number.isFinite(point.value)) {
-      warnings.push(`${definition.label}: omitted ${period} point ending ${point.end}; value is not finite.`);
+      warnings.push(`${definition.label}: omitted annual point ending ${point.end}; value is not finite.`);
       return false;
     }
 
     if (definition.nonNegative && point.value < 0) {
-      warnings.push(`${definition.label}: omitted negative ${period} point ending ${point.end}.`);
+      warnings.push(`${definition.label}: omitted negative annual point ending ${point.end}.`);
       return false;
     }
 
@@ -499,7 +313,7 @@ function validateMetricPoints(
       continue;
     }
 
-    warnings.push(`${definition.label}: deduplicated ${period} point ending ${point.end}.`);
+    warnings.push(`${definition.label}: deduplicated annual point ending ${point.end}.`);
     byEnd.set(point.end, preferFinancialPoint(point, current));
   }
 
@@ -507,40 +321,6 @@ function validateMetricPoints(
     points: Array.from(byEnd.values()).sort(comparePointsByEnd),
     warnings: uniqueWarnings(warnings)
   };
-}
-
-function annualQuarterSumWarnings(
-  definition: MetricDefinition,
-  annual: FinancialDataPoint[],
-  quarterly: FinancialDataPoint[]
-) {
-  if (definition.kind !== "duration") return [];
-  const warnings: string[] = [];
-
-  for (const annualPoint of annual) {
-    if (!annualPoint.start) continue;
-    const sameFiscalWindow = quarterly.filter(
-      (point) => point.end > annualPoint.start! && point.end <= annualPoint.end
-    );
-    const quarters = QUARTER_PERIODS.map((period) =>
-      sameFiscalWindow.find((point) => point.fiscalPeriod === period)
-    );
-    if (quarters.some((point) => !point)) continue;
-
-    const quarterTotal = quarters.reduce((total, point) => total + (point?.value ?? 0), 0);
-    const tolerance = Math.max(Math.abs(annualPoint.value) * 0.01, 1_000_000);
-    if (Math.abs(annualPoint.value - quarterTotal) > tolerance) {
-      warnings.push(
-        `${definition.label}: annual value does not match quarterly sum for ${annualPoint.end}.`
-      );
-    }
-  }
-
-  return warnings;
-}
-
-function cleanQuarterPeriod(value: string | null) {
-  return QUARTER_PERIODS.includes(value ?? "") ? value : null;
 }
 
 function preferFinancialPoint(
@@ -552,39 +332,13 @@ function preferFinancialPoint(
 
 function compareFactPreference(
   next: FactCandidate,
-  current: FactCandidate,
-  period: FinancialPeriod
+  current: FactCandidate
 ) {
   if (next.tagPriority !== current.tagPriority) {
     return current.tagPriority - next.tagPriority;
   }
 
-  const nextScore = factPreferenceScore(next, period);
-  const currentScore = factPreferenceScore(current, period);
-  if (nextScore !== currentScore) return nextScore - currentScore;
-
   return String(next.filed ?? "").localeCompare(String(current.filed ?? ""));
-}
-
-function factPreferenceScore(fact: FactCandidate, period: FinancialPeriod) {
-  let score = 0;
-
-  if (period === "annual") {
-    if (fact.form === "10-K") score += 4;
-    if (fact.fp === "FY") score += 2;
-    if (/^CY\d{4}$/.test(fact.frame ?? "")) score += 1;
-    return score;
-  }
-
-  if (fact.form === "10-Q") score += 4;
-  if (fact.form === "10-K") score += 3;
-  if (/^Q[1-4]$/.test(fact.fp ?? "")) score += 2;
-  if (/^CY\d{4}Q[1-4]I?$/.test(fact.frame ?? "")) score += 1;
-  return score;
-}
-
-function isEarlierFiledFact(next: CompanyFactUnit, current: CompanyFactUnit) {
-  return String(next.filed ?? "").localeCompare(String(current.filed ?? "")) < 0;
 }
 
 function comparePointsByEnd(a: FinancialDataPoint, b: FinancialDataPoint) {

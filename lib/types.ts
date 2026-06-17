@@ -17,15 +17,13 @@ export type RecentSecFiling = {
   title: string | null;
 };
 
-export type FinancialPeriod = "annual" | "quarterly";
 export type FinancialStatement = "income" | "balance" | "cashFlow";
+export type FinancialMetricKind = "duration" | "instant";
 
 export type FinancialDataPoint = {
   start: string | null;
   end: string;
   filed: string;
-  fiscalYear: number | null;
-  fiscalPeriod: string | null;
   form: string;
   accessionNumber: string | null;
   value: number;
@@ -38,9 +36,9 @@ export type FinancialMetric = {
   key: string;
   label: string;
   statement: FinancialStatement;
+  kind: FinancialMetricKind;
   unit: "USD";
   annual: FinancialDataPoint[];
-  quarterly: FinancialDataPoint[];
   warnings: string[];
 };
 

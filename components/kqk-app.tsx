@@ -15,20 +15,9 @@ import type {
   FinancialDataPoint,
   FinancialFactsResponse,
   FinancialMetric,
-  FinancialPeriod,
   FinancialStatement,
   RecentSecFiling
 } from "@/lib/types";
-
-type FinancialTimeFrame = "1y" | "3y" | "5y" | "10y" | "all";
-
-const FINANCIAL_TIME_FRAMES: Array<{ label: string; value: FinancialTimeFrame }> = [
-  { label: "1Y", value: "1y" },
-  { label: "3Y", value: "3y" },
-  { label: "5Y", value: "5y" },
-  { label: "10Y", value: "10y" },
-  { label: "All", value: "all" }
-];
 
 const FINANCIAL_STATEMENTS: Array<{ label: string; value: FinancialStatement }> = [
   { label: "Income Statement", value: "income" },
@@ -42,8 +31,6 @@ export function KqkApp() {
   const [recentFilings, setRecentFilings] = useState<RecentSecFiling[]>([]);
   const [financialFacts, setFinancialFacts] = useState<FinancialFactsResponse | null>(null);
   const [factsStatement, setFactsStatement] = useState<FinancialStatement>("income");
-  const [factsPeriod, setFactsPeriod] = useState<FinancialPeriod>("annual");
-  const [factsTimeFrame, setFactsTimeFrame] = useState<FinancialTimeFrame>("5y");
   const [selectedMetricKey, setSelectedMetricKey] = useState("revenue");
   const [factsLoading, setFactsLoading] = useState(false);
   const [factsError, setFactsError] = useState<string | null>(null);
@@ -326,22 +313,6 @@ export function KqkApp() {
               <h2>Financial Facts</h2>
             </div>
             <div className="factsControls">
-              <div className="segmented" aria-label="Financial facts period">
-                <button
-                  className={factsPeriod === "annual" ? "activeSegment" : ""}
-                  onClick={() => setFactsPeriod("annual")}
-                  type="button"
-                >
-                  Annual
-                </button>
-                <button
-                  className={factsPeriod === "quarterly" ? "activeSegment" : ""}
-                  onClick={() => setFactsPeriod("quarterly")}
-                  type="button"
-                >
-                  Quarterly
-                </button>
-              </div>
               <button
                 className="secondaryButton"
                 disabled={factsLoading}
@@ -392,27 +363,8 @@ export function KqkApp() {
                   </button>
                 ))}
               </div>
-              <div className="timeFrameSelector" aria-label="Financial facts time frame">
-                <span className="selectorLabel">Time frame</span>
-                <div className="segmented">
-                  {FINANCIAL_TIME_FRAMES.map((timeFrame) => (
-                    <button
-                      className={factsTimeFrame === timeFrame.value ? "activeSegment" : ""}
-                      key={timeFrame.value}
-                      onClick={() => setFactsTimeFrame(timeFrame.value)}
-                      type="button"
-                    >
-                      {timeFrame.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
               {selectedMetric ? (
-                <FinancialMetricCard
-                  metric={selectedMetric}
-                  period={factsPeriod}
-                  timeFrame={factsTimeFrame}
-                />
+                <FinancialMetricCard metric={selectedMetric} />
               ) : (
                 <div className="noMetricData">No SEC facts available.</div>
               )}
@@ -430,16 +382,8 @@ export function KqkApp() {
   );
 }
 
-function FinancialMetricCard({
-  metric,
-  period,
-  timeFrame
-}: {
-  metric: FinancialMetric;
-  period: FinancialPeriod;
-  timeFrame: FinancialTimeFrame;
-}) {
-  const points = sliceMetricPoints(metric[period], period, timeFrame);
+function FinancialMetricCard({ metric }: { metric: FinancialMetric }) {
+  const points = metric.annual;
   const latest = points.at(-1);
 
   return (
@@ -448,7 +392,7 @@ function FinancialMetricCard({
         <div>
           <h3>{metric.label}</h3>
           <p className="muted">
-            {latest ? pointLabel(latest) : "No SEC facts available"}
+            {latest ? pointPeriodLabel(latest, metric.kind) : "No SEC facts available"}
           </p>
         </div>
         {latest ? <strong>{formatMoney(latest.value)}</strong> : null}
@@ -457,7 +401,7 @@ function FinancialMetricCard({
         <p className="metricWarning">{metric.warnings[0]}</p>
       ) : null}
       {points.length > 0 ? (
-        <MetricChart points={points} />
+        <MetricChart metric={metric} points={points} />
       ) : (
         <div className="noMetricData">No SEC facts available.</div>
       )}
@@ -465,22 +409,15 @@ function FinancialMetricCard({
   );
 }
 
-function sliceMetricPoints(
-  points: FinancialDataPoint[],
-  period: FinancialPeriod,
-  timeFrame: FinancialTimeFrame
-) {
-  if (timeFrame === "all") return points;
-
-  const years = Number(timeFrame.replace("y", ""));
-  const pointCount = period === "annual" ? years : years * 4;
-  return points.slice(-pointCount);
-}
-
-function MetricChart({ points }: { points: FinancialDataPoint[] }) {
+function MetricChart({
+  metric,
+  points
+}: {
+  metric: FinancialMetric;
+  points: FinancialDataPoint[];
+}) {
   const chartData = points.map((point) => ({
-    fiscalPeriod: pointLabel(point),
-    label: point.end,
+    label: pointPeriodLabel(point, metric.kind),
     value: point.value
   }));
 
@@ -492,7 +429,6 @@ function MetricChart({ points }: { points: FinancialDataPoint[] }) {
           <XAxis
             dataKey="label"
             interval="preserveStartEnd"
-            label={{ value: "Period", position: "insideBottom", offset: -16 }}
             stroke="#66706a"
             tick={{ fill: "#66706a", fontSize: 12 }}
             tickLine={false}
@@ -506,23 +442,7 @@ function MetricChart({ points }: { points: FinancialDataPoint[] }) {
             tickLine={false}
             width={72}
           />
-          <Tooltip
-            contentStyle={{
-              border: "1px solid #dfe4dd",
-              borderRadius: 8,
-              boxShadow: "0 12px 28px rgba(35, 45, 38, 0.12)"
-            }}
-            formatter={(value) => [formatMoney(Number(value)), "Value"]}
-            labelFormatter={(_, payload) => {
-              const point = payload?.[0]?.payload as {
-                fiscalPeriod?: string;
-                label?: string;
-              };
-              return point?.fiscalPeriod
-                ? `${point.fiscalPeriod} (${point.label})`
-                : `Period: ${point?.label ?? ""}`;
-            }}
-          />
+          <Tooltip content={<ChartTooltip />} />
           <Area
             dataKey="value"
             fill="rgba(31, 107, 69, 0.14)"
@@ -532,6 +452,34 @@ function MetricChart({ points }: { points: FinancialDataPoint[] }) {
           />
         </AreaChart>
       </ResponsiveContainer>
+    </div>
+  );
+}
+
+function pointPeriodLabel(
+  point: FinancialDataPoint,
+  kind: FinancialMetric["kind"]
+) {
+  if (kind === "instant") return point.end;
+  return point.start ? `${point.start} - ${point.end}` : point.end;
+}
+
+function ChartTooltip({
+  active,
+  label,
+  payload
+}: {
+  active?: boolean;
+  label?: string | number;
+  payload?: Array<{ value?: unknown }>;
+}) {
+  const value = Number(payload?.[0]?.value);
+  if (!active || !Number.isFinite(value)) return null;
+
+  return (
+    <div className="chartTooltip">
+      <span>{label}</span>
+      <strong>{formatMoney(value)}</strong>
     </div>
   );
 }
@@ -553,12 +501,4 @@ function formatMoney(value: number) {
   }
 
   return `${sign}$${Math.round(absolute).toLocaleString()}`;
-}
-
-function pointLabel(point: { end: string; fiscalYear: number | null; fiscalPeriod: string | null }) {
-  if (point.fiscalYear && point.fiscalPeriod) {
-    return `${point.fiscalYear} ${point.fiscalPeriod}`;
-  }
-
-  return point.end;
 }

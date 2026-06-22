@@ -3,9 +3,9 @@ import "server-only";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { DATA_DIR } from "@/lib/paths";
 import type { Company } from "@/lib/types";
 
-const DATA_DIR = join(process.cwd(), "data");
 const DB_PATH = join(DATA_DIR, "kqk.sqlite");
 
 let db: DatabaseSync | null = null;

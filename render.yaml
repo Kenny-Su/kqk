@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: kqk
+    runtime: node
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 24.14.1

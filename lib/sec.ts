@@ -6,6 +6,7 @@ import {
   normalizeFinancialMetrics,
   type CompanyFactsResponse
 } from "@/lib/financial-facts";
+import { DATA_DIR } from "@/lib/paths";
 import type { FinancialMetric, RecentSecFiling } from "@/lib/types";
 
 type CompanyTickerEntry = {
@@ -36,7 +37,7 @@ const USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
 
 function cachePath(...parts: string[]) {
-  return join(process.cwd(), "data", "sec-cache", ...parts);
+  return join(DATA_DIR, "sec-cache", ...parts);
 }
 
 async function secFetch(url: string) {
@@ -133,7 +134,7 @@ export async function getCompanyFinancialFacts(input: {
   const sourceUrl = `${SEC_DATA_BASE}/api/xbrl/companyfacts/CIK${input.cik}.json`;
   const cacheFilePath = cachePath(input.cik, "companyfacts.json");
 
-  mkdirSync(join(process.cwd(), "data", "sec-cache", input.cik), { recursive: true });
+  mkdirSync(join(DATA_DIR, "sec-cache", input.cik), { recursive: true });
 
   let raw: string;
   try {

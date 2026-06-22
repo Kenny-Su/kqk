@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { deleteCompanyById, findCompanyById } from "@/lib/db";
+import { DATA_DIR } from "@/lib/paths";
 
 export const runtime = "nodejs";
 
@@ -30,7 +31,7 @@ export async function DELETE(_request: Request, { params }: Params) {
 
   deleteCompanyById(company.id);
 
-  await rm(join(process.cwd(), "data", "sec-cache", company.cik), {
+  await rm(join(DATA_DIR, "sec-cache", company.cik), {
     force: true,
     recursive: true
   });
